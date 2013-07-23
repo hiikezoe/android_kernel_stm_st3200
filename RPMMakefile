@@ -1,0 +1,10 @@
+SPEC?=SPECS/stm-host-sdk2-kernel.spec
+BUILDAREA?=$(PWD)/../
+
+-include $(BUILDAREA)/Makefile.rpm
+
+BZIP2?=bzip2
+
+rpmpackage:
+	mkdir -p SOURCES
+	ls -A | egrep -ve '_MTN|^\.git|SPECS|SOURCES|RPMMakefile|^\.rpm|^\.config$$' | xargs tar --use-compress-prog=$(BZIP2) -cf SOURCES/stm-sdk2-kernel.tar.bz2

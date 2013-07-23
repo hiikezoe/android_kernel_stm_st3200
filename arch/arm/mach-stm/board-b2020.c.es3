@@ -1,0 +1,553 @@
+/*
+ * arch/arm/mach-stm/board-b2020.c for ES3
+ *
+ * Copyright (C) 2012 STMicroelectronics Limited.
+ * Author: Srinivas Kandagatla <srinivas.kandagatla@st.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#include <linux/init.h>
+#include <linux/platform_device.h>
+#include <linux/delay.h>
+#include <linux/io.h>
+#include <linux/gpio.h>
+#include <linux/input.h>
+#include <linux/phy.h>
+#include <linux/i2c.h>
+#include <linux/i2c-gpio.h>
+#if 1
+#include <linux/mdio-gpio.h>
+#endif
+#include <linux/leds.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/stih415.h>
+#include <linux/mtd/nand.h>
+#include <linux/mtd/partitions.h>
+
+#include <asm/hardware/gic.h>
+#include <asm/mach-types.h>
+#include <asm/memory.h>
+#include <asm/delay.h>
+
+#include <mach/soc-stih415.h>
+#include <mach/mpe41.h>
+#include <mach/hardware.h>
+
+#include <linux/stm/pad.h>
+#include <linux/stm/pio-control.h>
+
+#if 1
+#include <linux/mtd/mtd.h>
+#include <linux/mtd/physmap.h>
+#include <linux/mtd/partitions.h>
+#include <linux/mtd/nand.h>
+#include <linux/spi/spi.h>
+#include <linux/spi/spi_gpio.h>
+#include <linux/spi/flash.h>
+#endif
+
+static struct stm_pad_config b20202a_tsin_pad_config = {
+#if 1
+	.gpios_num = 4,
+#else
+	.gpios_num = 20,
+#endif
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_IN_NAMED_RETIME(5, 4, 1, "tsin0serdata", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(5, 3, 1, "tsin0btclkin", RET_NICLK(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(5, 1, 1, "tsin0valid", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(5, 0, 1, "tsin0error", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(5, 2, 1, "tsin0pkclk", RET_SE_NICLK_IO(0, 0)),
+
+#if 0
+		STM_PAD_PIO_IN_NAMED_RETIME(7, 0, 1, "tsin1serdata", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(6, 7, 1, "tsin1btclkin", RET_NICLK(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(6, 5, 1, "tsin1valid", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(6, 4, 1, "tsin1error", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(6, 6, 1, "tsin1pkclk", RET_SE_NICLK_IO(0, 0)),
+
+		STM_PAD_PIO_IN_NAMED_RETIME(8, 4, 1, "tsin2serdata", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(8, 3, 1, "tsin2btclkin", RET_NICLK(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(8, 1, 1, "tsin2valid", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(8, 0, 1, "tsin2error", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(8, 2, 1, "tsin2pkclk", RET_SE_NICLK_IO(0, 0)),
+
+		STM_PAD_PIO_IN_NAMED_RETIME(9, 1, 1, "tsin3serdata", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(9, 0, 1, "tsin3btclkin", RET_NICLK(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(8, 6, 1, "tsin3valid", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(8, 5, 1, "tsin3error", RET_SE_NICLK_IO(0, 0)),
+		STM_PAD_PIO_IN_NAMED_RETIME(8, 7, 1, "tsin3pkclk", RET_SE_NICLK_IO(0, 0)),
+#endif
+	},
+};
+
+static void b2020_configure_tsin(bool freeze)
+{
+	static struct stm_pad_state *tsin_pad = NULL;
+
+	if (!freeze) {
+		tsin_pad = stm_pad_claim(&b20202a_tsin_pad_config, "tsin");
+	}
+	else {
+		if (tsin_pad)
+			stm_pad_release(tsin_pad);
+		tsin_pad = NULL;
+	}
+}
+
+static void __init b2020_init_early(void)
+{
+	printk(KERN_INFO
+	       "STMicroelectronics STiH415 (Orly) B2020 ADI initialisation\n");
+
+	stih415_early_device_init();
+	/* for UART11 via J26 use device 5 for console
+	 * for UART10 via J35 use device 4 for console
+	 */
+	stih415_configure_asc(5, &(struct stih415_asc_config) {
+			.hw_flow_control = 0,
+			.is_console = 1 });
+#if 1
+        printk("for RF4CE initialisation\n");
+        /* for RF4CE    */
+        stih415_configure_asc(0, &(struct stih415_asc_config) {
+                        .hw_flow_control = 0,
+                        .is_console = 0 });
+        printk("for RF4CE end\n");
+
+#endif
+}
+
+#if 1
+#define B2020_GMII1_PHY_NOT_RESET stm_gpio(3, 5)
+#define GMII1_PHY_CLKOUT_NOT_TXCLK_SEL stm_gpio(2, 5)
+#else
+#define B2020_GMII1_PHY_NOT_RESET stm_gpio(3, 0)
+#endif
+
+static struct stm_pad_config stih415_hdmi_hp_pad_config = {
+	.gpios_num = 1,
+	.gpios = (struct stm_pad_gpio []) {
+		STM_PAD_PIO_IN(2, 5, 1),	/* HDMI Hotplug */
+	},
+};
+/* NAND Flash */
+static struct stm_nand_bank_data b2020_nand_flash = {
+	.csn		= 0,
+	.options	= NAND_NO_AUTOINCR,
+	.bbt_options	= NAND_BBT_USE_FLASH,
+	.nr_partitions	= 2,
+	.partitions	= (struct mtd_partition []) {
+		{
+			.name	= "NAND Flash 1",
+			.offset = 0,
+			.size	= 0x00800000
+		}, {
+			.name	= "NAND Flash 2",
+			.offset = MTDPART_OFS_NXTBLK,
+			.size	= MTDPART_SIZ_FULL
+		},
+	},
+	.timing_data = &(struct stm_nand_timing_data) {
+		.sig_setup	= 10,		/* times in ns */
+		.sig_hold	= 10,
+		.CE_deassert	= 0,
+		.WE_to_RBn	= 100,
+		.wr_on		= 10,
+		.wr_off		= 30,
+		.rd_on		= 10,
+		.rd_off		= 30,
+		.chip_delay	= 30,		/* in us */
+	},
+};
+
+/* Serial FLASH */
+static struct stm_plat_spifsm_data b2020_serial_flash = {
+	.name		= "m25p128",
+	.nr_parts	= 2,
+	.parts = (struct mtd_partition []) {
+		{
+			.name = "Serial Flash 1",
+			.size = 0x00200000,
+			.offset = 0,
+		}, {
+			.name = "Serial Flash 2",
+			.size = MTDPART_SIZ_FULL,
+			.offset = MTDPART_OFS_NXTBLK,
+		},
+	},
+	.capabilities = {
+		/* Capabilities may be overriden by SoC configuration */
+		.dual_mode = 1,
+		.quad_mode = 1,
+	},
+};
+
+static int b2020_gmii1_reset(void *bus)
+{
+
+	gpio_set_value(B2020_GMII1_PHY_NOT_RESET, 1);
+	gpio_set_value(B2020_GMII1_PHY_NOT_RESET, 0);
+	mdelay(10); /* 10 miliseconds is enough for everyone ;-) */
+	gpio_set_value(B2020_GMII1_PHY_NOT_RESET, 1);
+	mdelay(10); /* 10 miliseconds is enough for everyone ;-) */
+
+	return 1;
+}
+
+#if 1
+#define STMMAC1_MDIO_GPIO_BUS   3
+static struct platform_device stmmac1_mdio_gpio_bus = {
+        .name = "mdio-gpio",
+        .id = STMMAC1_MDIO_GPIO_BUS,
+        .dev.platform_data = &(struct mdio_gpio_platform_data) {
+                /* GMAC1 SMI */
+                .mdc = stm_gpio(15, 5),
+                .mdio = stm_gpio(1, 0),
+                .reset = b2020_gmii1_reset,
+        },
+};
+#else
+static struct stmmac_mdio_bus_data stmmac1_mdio_bus = {
+	.phy_reset = &b2020_gmii1_reset,
+	.phy_mask = 0,
+};
+#endif
+
+static struct platform_device b2020_leds = {
+	.name = "leds-gpio",
+	.id = -1,
+	.dev.platform_data = &(struct gpio_led_platform_data) {
+		.num_leds = 1,
+		.leds = (struct gpio_led[]) {
+			{
+				.name = "FP_LED",
+				.default_trigger = "heartbeat",
+				.gpio = stm_gpio(4, 1),
+			}
+		},
+	},
+};
+
+static struct platform_device *b2020_devices[] __initdata = {
+	&b2020_leds,
+};
+
+
+#if 1
+static struct platform_device b2020_serial_flash_bus = {
+        .name = "spi_gpio",
+        .id = 8,
+        .num_resources = 0,
+        .dev.platform_data = &(struct spi_gpio_platform_data) {
+                .num_chipselect = 1,
+                .sck = stm_gpio(12, 2),
+                .mosi = stm_gpio(12, 5),
+                .miso = stm_gpio(12, 4),
+        }
+};
+
+static struct mtd_partition b2020_serial_flash_parts[] = {
+        {
+                .name = "SPI 1",
+                .size = MTDPART_SIZ_FULL,
+                .offset = 0,
+        },
+};
+
+static struct spi_board_info b2020_serial_flash_info[] =  {
+        {
+                .modalias       = "m25p80",
+                .bus_num        = 8,
+                .controller_data = (void *)stm_gpio(12, 3),
+                .max_speed_hz   = 7000000,
+                .mode           = SPI_MODE_3,
+                .platform_data  = &(struct flash_platform_data) {
+                        .name = "m25p80",
+                        .parts = b2020_serial_flash_parts,
+                        .nr_parts = ARRAY_SIZE(b2020_serial_flash_parts),
+                },
+        },
+};
+#endif
+
+static void b2020_ethphy_gpio_init(int cold_boot)
+{
+	/* Reset */
+	if (cold_boot) {
+		gpio_request(B2020_GMII1_PHY_NOT_RESET,
+			     "B2020_GMII1_PHY_NOT_RESET");
+	}
+
+
+	gpio_direction_output(B2020_GMII1_PHY_NOT_RESET, 0);
+
+	b2020_gmii1_reset(NULL);
+}
+
+#if 0
+#define DO_BITBANGING_SSC0
+#endif
+#ifdef DO_BITBANGING_SSC0
+static struct platform_device b2020_gpio_i2c = {
+	.name = "i2c-gpio",
+	.id = 10,
+	.dev.platform_data = &(struct i2c_gpio_platform_data) {
+		.sda_pin = stm_gpio(9, 3),
+		.scl_pin = stm_gpio(9, 2),
+		.sda_is_open_drain = 0,
+		.scl_is_open_drain = 0,
+		.scl_is_output_only = 1,
+        },
+};
+#endif
+
+static struct platform_device b2020_sbc_config = {
+	.name = "stm-sbc",
+	.dev.platform_data = &(struct stm_sbc_platform_data) {
+		/* J31 should be not fitted, and J33 set to 1-2 */
+#if 1
+		.gpio = stm_gpio(4, 3),
+#else
+		.gpio = stm_gpio(3, 6),
+#endif
+		.trigger_level = 1,
+	},
+};
+
+static void __init b2020_init(void)
+{
+	stih415_configure_sbc(&b2020_sbc_config);
+
+	b2020_ethphy_gpio_init(1);
+
+	/* Default to HDMI HotPlug */
+	if (stm_pad_claim(&stih415_hdmi_hp_pad_config, "HDMI_Hotplug") == NULL)
+		printk(KERN_ERR "Failed to claim HDMI-Hotplug pad!\n");
+
+#if 1
+        stih415_configure_ethernet(1, &(struct stih415_ethernet_config) {
+                        .interface = PHY_INTERFACE_MODE_RMII,
+                        .ext_clk = 1,
+                        .phy_addr = 0,
+                        .phy_bus_name = "gpio",
+                        .phy_bus = STMMAC1_MDIO_GPIO_BUS,});
+#else
+	stih415_configure_ethernet(1, &(struct stih415_ethernet_config) {
+			.interface = PHY_INTERFACE_MODE_RGMII_ID,
+			.ext_clk = 1,
+			.phy_addr = 1,
+			.phy_bus = 1,
+			.mdio_bus_data = &stmmac1_mdio_bus,});
+#endif
+
+	stih415_configure_usb(0);
+	stih415_configure_usb(1);
+	stih415_configure_usb(2);
+
+#if 0
+	/* SSC0 to STV6440 (AV Buffer), PCIe connector and NIM SCL1/SDA1 */
+#ifndef DO_BITBANGING_SSC0
+	stih415_configure_ssc_i2c(STIH415_SSC(0),
+			&(struct stih415_ssc_config) {.i2c_speed = 100,});
+#else
+	platform_device_register(&b2020_gpio_i2c);
+#endif
+#endif
+
+	/* SSC1 to HDMI (via HDMI2C1_5DIJ) */
+	stih415_configure_ssc_i2c(STIH415_SSC(1),
+			&(struct stih415_ssc_config) {.i2c_speed = 100,});
+
+#if 0
+	/* SSC10 to M24256-BWMN6 eeprom and NIM SCL2/SDA2 */
+	stih415_configure_ssc_i2c(STIH415_SBC_SSC(0),
+			&(struct stih415_ssc_config) {.i2c_speed = 100,});
+#else
+        stih415_configure_ssc_i2c(STIH415_SSC(0),
+                        &(struct stih415_ssc_config) {.i2c_speed = 100,});
+#endif
+
+	/* IR_IN */
+	stih415_configure_lirc(&(struct stih415_lirc_config) {
+			.rx_mode = stih415_lirc_rx_mode_ir, });
+
+#if 0   /* for LED gpio test */
+	stih415_configure_pwm(&(struct stih415_pwm_config) {
+			.pwm = stih415_sbc_pwm,
+			.out0_enabled = 1, });
+#endif
+
+#if 0 // LPM
+	stih415_configure_mmc(0);
+#else
+	stih415_configure_mmc(1);
+#endif
+
+#if 1
+        /* Disable hold and write-protect signals */
+        gpio_request(stm_gpio(12, 6), "SPI_HOLD");
+        gpio_direction_output(stm_gpio(12, 6), 1);
+        gpio_request(stm_gpio(12, 7), "SPI_WRITE_PRO");
+        gpio_direction_output(stm_gpio(12, 7), 1);
+
+        platform_device_register(&b2020_serial_flash_bus);
+
+        spi_register_board_info(b2020_serial_flash_info,
+                                ARRAY_SIZE(b2020_serial_flash_info));
+#endif
+	stih415_configure_nand(&(struct stm_nand_config) {
+			.driver = stm_nand_bch,
+			.nr_banks = 1,
+			.banks = &b2020_nand_flash,
+			.rbn.flex_connected = 1,});
+
+	stih415_configure_spifsm(&b2020_serial_flash);
+
+	stih415_configure_audio(&(struct stih415_audio_config) {
+			.uni_player_3_spdif_enabled = 1, });
+
+	b2020_configure_tsin(0);
+
+	platform_add_devices(b2020_devices,
+		ARRAY_SIZE(b2020_devices));
+
+	/* 1 SATA + 1 PCIe */
+	stih415_configure_miphy(&(struct stih415_miphy_config) {
+		/* You need a valid clock to the PCIe block in order to talk to
+		 * the miphy, but the PCIe clock on Rev A,B board is set to
+		 * 200MHz, it needs to be changed to 100MHz in order to get
+		 * PCIe working: remove resistor R51 and connect a 10k resistor
+		 * on R56. Rev C boards have the option resistors set correcty.
+		 *
+		 * The UNUSED is to improve resiliance to unmodified boards: If
+		 * you have an unmodified board, disabling CONFIG_PCI will at
+		 * least get you working SATA
+		 */
+		.modes = (enum miphy_mode[2]) { SATA_MODE,
+		IS_ENABLED(CONFIG_PCI) ?  PCIE_MODE : UNUSED_MODE }, });
+	stih415_configure_sata(0, &(struct stih415_sata_config) { });
+
+	stih415_configure_pcie(&(struct stih415_pcie_config) {
+				.reset_gpio = -1, /* No Reset */
+				});
+
+#if 1
+        /* for RF4CE */
+        gpio_request(stm_gpio(10, 2), "RF4C_RTR");
+        gpio_direction_input(stm_gpio(10, 2));
+        gpio_set_value(stm_gpio(10, 2), 0);
+        gpio_free(stm_gpio(10, 2));
+#endif
+#if 1   /* for LED gpio test    */
+        gpio_request(stm_gpio(0, 3), "LED1_R");
+        gpio_direction_output(stm_gpio(0, 3), 0);
+        gpio_set_value(stm_gpio(0, 3), 0);
+        gpio_free(stm_gpio(0, 3));
+        gpio_request(stm_gpio(1, 1), "LED1_G");
+        gpio_direction_output(stm_gpio(1, 1), 0);
+        gpio_set_value(stm_gpio(1, 1), 0);
+        gpio_free(stm_gpio(1, 1));
+        gpio_request(stm_gpio(3, 3), "LED1_B");
+        gpio_direction_output(stm_gpio(3, 3), 0);
+        gpio_set_value(stm_gpio(3, 3), 0);
+        gpio_free(stm_gpio(3, 3));
+
+        gpio_request(stm_gpio(13, 2), "LED2_R");
+        gpio_direction_output(stm_gpio(13, 2), 0);
+        gpio_set_value(stm_gpio(13, 2), 0);
+        gpio_free(stm_gpio(13, 2));
+        gpio_request(stm_gpio(0, 6), "LED2_G");
+        gpio_direction_output(stm_gpio(0, 6), 0);
+        gpio_set_value(stm_gpio(0, 6), 0);
+        gpio_free(stm_gpio(0, 6));
+        gpio_request(stm_gpio(3, 0), "LED2_B");
+        gpio_direction_output(stm_gpio(3, 0), 0);
+        gpio_set_value(stm_gpio(3, 0), 0);
+        gpio_free(stm_gpio(3, 0));
+
+        gpio_request(stm_gpio(16, 0), "LED2_R_B");
+        gpio_direction_output(stm_gpio(16, 0), 0);
+        gpio_set_value(stm_gpio(16, 0), 0);
+        gpio_free(stm_gpio(16, 0));
+        gpio_request(stm_gpio(16, 1), "LED2_G_B");
+        gpio_direction_output(stm_gpio(16, 1), 0);
+        gpio_set_value(stm_gpio(16, 1), 0);
+        gpio_free(stm_gpio(16, 1));
+        gpio_request(stm_gpio(16, 2), "LED2_B_B");
+        gpio_direction_output(stm_gpio(16, 2), 0);
+        gpio_set_value(stm_gpio(16, 2), 0);
+        gpio_free(stm_gpio(16, 2));
+
+        gpio_request(stm_gpio(9, 5), "USB_0_POWER");
+        gpio_direction_output(stm_gpio(9, 5), 0);
+        gpio_set_value(stm_gpio(9, 5), 1);
+        gpio_free(stm_gpio(9, 5));
+        gpio_request(stm_gpio(18, 1), "USB_1_POWER");
+        gpio_direction_output(stm_gpio(18, 1), 0);
+        gpio_set_value(stm_gpio(18, 1), 1);
+        gpio_free(stm_gpio(18, 1));
+        gpio_request(stm_gpio(18, 3), "USB_2_POWER");
+        gpio_direction_output(stm_gpio(18, 3), 0);
+        gpio_set_value(stm_gpio(18, 3), 1);
+        gpio_free(stm_gpio(18, 3));
+
+#endif
+
+	return;
+}
+
+#if 1
+static int __init b2020_late_devices_setup(void)
+{
+return  platform_device_register(&stmmac1_mdio_gpio_bus);
+}
+late_initcall(b2020_late_devices_setup);
+#endif
+
+MACHINE_START(STM_B2020, "STMicroelectronics B2020 - STiH415 MBoard")
+	.atag_offset	= 0x100,
+	.map_io		= stih415_map_io,
+#ifdef CONFIG_SPARSE_IRQ
+	.nr_irqs	= NR_IRQS_LEGACY,
+#endif
+	.init_early	= b2020_init_early,
+	.init_irq	= mpe41_gic_init_irq,
+	.timer		= &mpe41_timer,
+	.handle_irq	= gic_handle_irq,
+	.init_machine	= b2020_init,
+	.restart	= stih415_reset,
+MACHINE_END
+
+#ifdef CONFIG_HIBERNATION_ON_MEMORY
+
+#include <linux/stm/hom.h>
+
+static int b2020_hom_restore(void)
+{
+	b2020_ethphy_gpio_init(0);
+	b2020_configure_tsin(0);
+	return 0;
+}
+
+static int b2020_hom_freeze(void)
+{
+	b2020_configure_tsin(1);
+	return 0;
+}
+
+static struct stm_hom_board b2020_hom = {
+	.restore = b2020_hom_restore,
+	.freeze = b2020_hom_freeze,
+};
+
+static int __init b2020_hom_init(void)
+{
+	return stm_hom_board_register(&b2020_hom);
+}
+
+late_initcall(b2020_hom_init);
+#endif
